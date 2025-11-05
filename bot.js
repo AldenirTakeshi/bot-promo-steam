@@ -1,5 +1,7 @@
 const nodemailer = require('nodemailer');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const COUNTRY_CODE = 'br';
@@ -133,6 +135,26 @@ async function getGamePrice(appId) {
       return null;
     }
 
+    let imageUrl = null;
+    if (data.header_image) {
+      imageUrl = data.header_image;
+    } else if (data.capsule_image) {
+      imageUrl = data.capsule_image;
+    } else if (data.capsule_imagev5) {
+      imageUrl = data.capsule_imagev5;
+    }
+
+    let genres = [];
+    if (data.genres && Array.isArray(data.genres)) {
+      genres = data.genres
+        .map((genre) => genre.description || genre)
+        .filter(Boolean);
+    } else if (data.genres && typeof data.genres === 'object') {
+      genres = Object.values(data.genres)
+        .map((genre) => genre.description || genre)
+        .filter(Boolean);
+    }
+
     return {
       name: data.name,
       initialPrice: priceData.initial_formatted,
@@ -140,6 +162,10 @@ async function getGamePrice(appId) {
       discountPercent: priceData.discount_percent,
       isPromo: true,
       link: `https://store.steampowered.com/app/${appId}/`,
+      imageUrl:
+        imageUrl ||
+        `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`,
+      genres: genres,
     };
   } catch (error) {
     if (error.response && error.response.status === 400) {
@@ -244,11 +270,42 @@ async function sendEmail(promotions) {
   }
 }
 
+async function savePromotionsToFile(promotions) {
+  try {
+    const dataDir = path.join(__dirname, 'data');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir);
+    }
+
+    const filePath = path.join(dataDir, 'promotions.json');
+    const data = {
+      lastUpdate: new Date().toISOString(),
+      total: promotions.length,
+      promotions: promotions,
+    };
+
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+    console.log(`✓ Dados salvos em ${filePath}`);
+  } catch (error) {
+    console.error('Erro ao salvar dados:', error.message);
+  }
+}
+
 async function main() {
   console.log('Iniciando verificação de promoções do Steam...');
   const promos = await checkPromotions();
   await sendEmail(promos);
+  await savePromotionsToFile(promos);
   console.log(`Verificação concluída. ${promos.length} promoções encontradas.`);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  checkPromotions,
+  getGamesOnSale,
+  savePromotionsToFile,
+  sendEmail,
+};

@@ -13,6 +13,9 @@ Este bot busca automaticamente jogos em promoção na Steam e envia um e-mail co
 - ✅ Filtra apenas jogos realmente em promoção (desconto > 0%)
 - ✅ Ordena os jogos por maior desconto
 - ✅ Envia e-mail com a lista completa de promoções
+- ✅ **Interface web moderna e responsiva** para visualizar promoções
+- ✅ Estatísticas em tempo real (total, desconto médio, maior desconto)
+- ✅ Busca e filtros avançados
 - ✅ Suporta preços em Real Brasileiro (R$)
 
 ## 📦 Pré-requisitos
@@ -76,11 +79,42 @@ Este bot busca automaticamente jogos em promoção na Steam e envia um e-mail co
 
 ## 🎯 Como Usar
 
-### Executar o Bot
+### Executar o Bot (somente busca + email)
 
 ```bash
+npm run bot
+# ou
 node bot.js
 ```
+
+### Executar o Servidor Web (Frontend)
+
+```bash
+npm start
+# ou
+node server.js
+```
+
+Depois acesse: **http://localhost:3000**
+
+### Executar o Bot e Servidor Juntos
+
+1. **Primeiro, execute o bot para gerar dados:**
+
+   ```bash
+   npm run bot
+   ```
+
+2. **Depois, inicie o servidor web:**
+
+   ```bash
+   npm start
+   ```
+
+3. **Acesse no navegador:**
+   ```
+   http://localhost:3000
+   ```
 
 ### O que o Bot Faz
 
@@ -97,9 +131,38 @@ node bot.js
    - Limita a 100 jogos para evitar muitas requisições
 
 3. **Envia e-mail:**
+
    - Monta um e-mail HTML com a lista de promoções
    - Ordena por maior desconto primeiro
    - Envia para o e-mail configurado em `DESTINATION_EMAIL`
+
+4. **Salva dados para o frontend:**
+   - Salva as promoções em `data/promotions.json`
+   - Interface web pode acessar esses dados
+
+## 🌐 Interface Web
+
+A interface web oferece:
+
+- **Visualização em cards** - Cada jogo em um card bonito e organizado
+- **Estatísticas** - Total de jogos, desconto médio e maior desconto
+- **Busca** - Filtre jogos pelo nome
+- **Ordenação** - Ordene por desconto (maior/menor) ou nome (A-Z/Z-A)
+- **Atualização** - Botão para atualizar os dados diretamente do frontend
+- **Design responsivo** - Funciona em desktop, tablet e mobile
+- **Tema Steam** - Cores e estilo inspirados na Steam
+
+### Recursos do Frontend:
+
+1. **Página principal** (`http://localhost:3000`)
+
+   - Visualiza todos os jogos em promoção
+   - Estatísticas em tempo real
+   - Busca e filtros
+
+2. **API Endpoints:**
+   - `GET /api/promotions` - Retorna as promoções atuais
+   - `POST /api/update` - Atualiza as promoções (executa o bot)
 
 ## 📧 Exemplo de E-mail
 
@@ -138,8 +201,15 @@ Adicione ao crontab:
 ```
 steam-promo-bot/
 ├── bot.js              # Código principal do bot
+├── server.js           # Servidor Express (API + Frontend)
 ├── package.json        # Dependências do projeto
 ├── .env               # Configurações (não versionado)
+├── data/              # Dados salvos (JSON)
+│   └── promotions.json # Últimas promoções encontradas
+├── public/            # Frontend (HTML, CSS, JS)
+│   ├── index.html     # Página principal
+│   ├── style.css      # Estilos
+│   └── script.js      # JavaScript do frontend
 └── README.md          # Este arquivo
 ```
 
@@ -175,6 +245,7 @@ steam-promo-bot/
 - `axios` - Para fazer requisições HTTP
 - `nodemailer` - Para envio de e-mails
 - `dotenv` - Para gerenciar variáveis de ambiente
+- `express` - Servidor web para o frontend e API
 
 ## 🤝 Contribuindo
 

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Steam Promoções - Bot Monitor</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>🎮 Steam Promoções</h1>
+        <p class="subtitle">Monitor de Jogos em Promoção na Steam</p>
+        <div class="header-actions">
+          <button id="refreshBtn" class="btn btn-primary">🔄 Atualizar</button>
+          <span id="lastUpdate" class="last-update"></span>
+        </div>
+      </header>
+
+      <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <p>Carregando promoções...</p>
+      </div>
+
+      <div id="stats" class="stats" style="display: none">
+        <div class="stat-card">
+          <div class="stat-value" id="totalGames">0</div>
+          <div class="stat-label">Jogos em Promoção</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="avgDiscount">0%</div>
+          <div class="stat-label">Desconto Médio</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="maxDiscount">0%</div>
+          <div class="stat-label">Maior Desconto</div>
+        </div>
+      </div>
+
+      <div id="filters" class="filters" style="display: none">
+        <input
+          type="text"
+          id="searchInput"
+          placeholder="🔍 Buscar jogo..."
+          class="search-input"
+        />
+        <select id="genreSelect" class="genre-select">
+          <option value="">Todos os Gêneros</option>
+        </select>
+        <select id="sortSelect" class="sort-select">
+          <option value="discount-desc">Maior Desconto</option>
+          <option value="discount-asc">Menor Desconto</option>
+          <option value="name-asc">Nome A-Z</option>
+          <option value="name-desc">Nome Z-A</option>
+        </select>
+      </div>
+
+      <div id="gamesContainer" class="games-container"></div>
+
+      <div id="emptyState" class="empty-state" style="display: none">
+        <p>😔 Nenhum jogo em promoção encontrado.</p>
+        <p class="empty-hint">
+          Execute o bot primeiro ou clique em "Atualizar"
+        </p>
+      </div>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
