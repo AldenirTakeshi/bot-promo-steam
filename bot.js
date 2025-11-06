@@ -218,19 +218,40 @@ async function checkPromotions() {
 /**
  * @param {Array<object>} promotions
  */
+/**
+ * @param {number} port - Porta SMTP (465 ou 587)
+ * @returns {object} Transporter configurado
+ */
+function createTransporter(port = 465) {
+  const isSecure = port === 465;
+
+  return nodemailer.createTransport({
+    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: port,
+    secure: isSecure,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+    tls: {
+      rejectUnauthorized: false,
+    },
+    connectionTimeout: 60000,
+    greetingTimeout: 30000,
+    socketTimeout: 60000,
+    debug: false,
+    logger: false,
+  });
+}
+
 async function sendEmail(promotions) {
   if (promotions.length === 0) {
     console.log('Nenhuma promoção encontrada. E-mail não enviado.');
     return;
   }
 
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
+  let transporter = createTransporter(465);
 
   promotions.sort((a, b) => b.discountPercent - a.discountPercent);
 
@@ -260,13 +281,42 @@ async function sendEmail(promotions) {
   };
 
   try {
+    try {
+      await transporter.verify();
+      console.log('✅ Servidor SMTP verificado na porta 465');
+    } catch (verifyError) {
+      console.log('⚠️ Porta 465 falhou, tentando porta 587 (TLS)...');
+      transporter = createTransporter(587);
+      await transporter.verify();
+      console.log('✅ Servidor SMTP verificado na porta 587');
+    }
+
     const info = await transporter.sendMail(mailOptions);
-    console.log('E-mail enviado:', info.response);
+    console.log('✅ E-mail enviado com sucesso:', info.response);
+    console.log('📧 Mensagem ID:', info.messageId);
   } catch (error) {
-    console.error(
-      'Erro ao enviar e-mail. Verifique o EMAIL_PASS (Senha de App):',
-      error,
-    );
+    console.error('❌ Erro ao enviar e-mail:', error.message);
+
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+      console.error('💡 O Railway pode estar bloqueando conexões SMTP');
+      console.error('💡 Alternativas:');
+      console.error(
+        '   1. Use um serviço de e-mail como SendGrid, Mailgun ou Resend',
+      );
+      console.error(
+        '   2. Ou desative o envio de e-mail e use apenas a interface web',
+      );
+    }
+
+    if (error.code === 'EAUTH') {
+      console.error(
+        '💡 Dica: Verifique se EMAIL_USER e EMAIL_PASS estão corretos',
+      );
+      console.error('💡 Dica: EMAIL_PASS deve ser a Senha de App do Google');
+      console.error(
+        '💡 Dica: Gere em: https://myaccount.google.com/apppasswords',
+      );
+    }
   }
 }
 
