@@ -264,4 +264,20 @@ Este projeto é livre para uso pessoal.
 
 ---
 
+## 🌐 Deploy na Web
+
+Para colocar seu bot na web e acessá-lo de qualquer lugar, consulte o guia completo de deploy:
+
+📖 **[Ver Guia de Deploy (DEPLOY.md)](DEPLOY.md)**
+
+Plataformas recomendadas:
+
+- **Railway** ⭐ (mais fácil e gratuito)
+- **Render** ⭐ (também fácil e gratuito)
+- **Heroku** (tradicional)
+- **Fly.io** (moderno)
+- **DigitalOcean** (confiável)
+
+---
+
 **Desenvolvido com ❤️ para gamers que querem pegar as melhores promoções!**
