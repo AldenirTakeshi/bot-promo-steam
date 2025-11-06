@@ -4,6 +4,11 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
+let Resend;
+try {
+  Resend = require('resend').Resend;
+} catch (e) {}
+
 const COUNTRY_CODE = 'br';
 const CURRENCY_ID = 20;
 const MAX_PROMOTIONS_TO_CHECK = 100;
@@ -245,14 +250,10 @@ function createTransporter(port = 465) {
   });
 }
 
-async function sendEmail(promotions) {
-  if (promotions.length === 0) {
-    console.log('Nenhuma promoção encontrada. E-mail não enviado.');
-    return;
-  }
-
-  let transporter = createTransporter(465);
-
+/**
+ * Gera o HTML do e-mail com as promoções
+ */
+function generateEmailHtml(promotions) {
   promotions.sort((a, b) => b.discountPercent - a.discountPercent);
 
   let emailHtml = '<h1>🎮 Jogos em Promoção na Steam! 🥳</h1>';
@@ -272,6 +273,56 @@ async function sendEmail(promotions) {
   });
 
   emailHtml += '</ul>';
+  return emailHtml;
+}
+
+/**
+ * Envia e-mail usando Resend (API moderna - funciona no Railway)
+ */
+async function sendEmailWithResend(promotions) {
+  if (!Resend) {
+    throw new Error('Resend não está disponível');
+  }
+
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error('RESEND_API_KEY não configurada');
+  }
+
+  if (!process.env.DESTINATION_EMAIL) {
+    throw new Error('DESTINATION_EMAIL não configurada');
+  }
+
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const emailHtml = generateEmailHtml(promotions);
+
+  const { data, error } = await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+    to: process.env.DESTINATION_EMAIL,
+    subject: `[Steam Bot] ${promotions.length} Jogos em Promoção na Steam!`,
+    html: emailHtml,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Envia e-mail usando Nodemailer (SMTP tradicional)
+ */
+async function sendEmailWithSMTP(promotions) {
+  if (
+    !process.env.EMAIL_USER ||
+    !process.env.EMAIL_PASS ||
+    !process.env.DESTINATION_EMAIL
+  ) {
+    throw new Error('Variáveis SMTP não configuradas');
+  }
+
+  let transporter = createTransporter(465);
+  const emailHtml = generateEmailHtml(promotions);
 
   const mailOptions = {
     from: process.env.EMAIL_USER,
@@ -281,30 +332,59 @@ async function sendEmail(promotions) {
   };
 
   try {
-    try {
-      await transporter.verify();
-      console.log('✅ Servidor SMTP verificado na porta 465');
-    } catch (verifyError) {
-      console.log('⚠️ Porta 465 falhou, tentando porta 587 (TLS)...');
-      transporter = createTransporter(587);
-      await transporter.verify();
-      console.log('✅ Servidor SMTP verificado na porta 587');
-    }
+    await transporter.verify();
+    console.log('✅ Servidor SMTP verificado');
+  } catch (verifyError) {
+    console.log('⚠️ Porta 465 falhou, tentando porta 587 (TLS)...');
+    transporter = createTransporter(587);
+    await transporter.verify();
+    console.log('✅ Servidor SMTP verificado na porta 587');
+  }
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('✅ E-mail enviado com sucesso:', info.response);
+  const info = await transporter.sendMail(mailOptions);
+  return info;
+}
+
+async function sendEmail(promotions) {
+  // Verificar se o envio de e-mail está desativado
+  if (process.env.DISABLE_EMAIL === 'true') {
+    console.log('📧 Envio de e-mail desativado (DISABLE_EMAIL=true)');
+    return;
+  }
+
+  if (promotions.length === 0) {
+    console.log('Nenhuma promoção encontrada. E-mail não enviado.');
+    return;
+  }
+
+  // Prioridade 1: Tentar Resend (API moderna, funciona no Railway)
+  if (process.env.RESEND_API_KEY && Resend) {
+    try {
+      console.log('📧 Tentando enviar e-mail via Resend...');
+      const result = await sendEmailWithResend(promotions);
+      console.log('✅ E-mail enviado com sucesso via Resend!');
+      console.log('📧 E-mail ID:', result.id);
+      return;
+    } catch (error) {
+      console.error('❌ Erro ao enviar via Resend:', error.message);
+      console.log('⚠️ Tentando fallback para SMTP...');
+    }
+  }
+
+  // Prioridade 2: Tentar SMTP (Gmail, etc.)
+  try {
+    console.log('📧 Tentando enviar e-mail via SMTP...');
+    const info = await sendEmailWithSMTP(promotions);
+    console.log('✅ E-mail enviado com sucesso via SMTP!');
     console.log('📧 Mensagem ID:', info.messageId);
+    return;
   } catch (error) {
-    console.error('❌ Erro ao enviar e-mail:', error.message);
+    console.error('❌ Erro ao enviar via SMTP:', error.message);
 
     if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
-      console.error('💡 O Railway pode estar bloqueando conexões SMTP');
-      console.error('💡 Alternativas:');
+      console.error('💡 O Railway bloqueia conexões SMTP');
       console.error(
-        '   1. Use um serviço de e-mail como SendGrid, Mailgun ou Resend',
-      );
-      console.error(
-        '   2. Ou desative o envio de e-mail e use apenas a interface web',
+        '💡 Configure RESEND_API_KEY para usar Resend (recomendado)',
       );
     }
 
@@ -313,11 +393,17 @@ async function sendEmail(promotions) {
         '💡 Dica: Verifique se EMAIL_USER e EMAIL_PASS estão corretos',
       );
       console.error('💡 Dica: EMAIL_PASS deve ser a Senha de App do Google');
-      console.error(
-        '💡 Dica: Gere em: https://myaccount.google.com/apppasswords',
-      );
     }
   }
+
+  // Se chegou aqui, nenhum método funcionou
+  console.error(
+    '❌ Nenhum método de envio de e-mail configurado ou funcionando',
+  );
+  console.error('💡 Configure RESEND_API_KEY no Railway para usar Resend');
+  console.error(
+    '💡 Ou configure EMAIL_USER, EMAIL_PASS e DESTINATION_EMAIL para SMTP',
+  );
 }
 
 async function savePromotionsToFile(promotions) {

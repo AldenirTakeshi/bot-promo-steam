@@ -45,7 +45,16 @@ app.post('/api/update', async (req, res) => {
     checkPromotions()
       .then(async (promos) => {
         await savePromotionsToFile(promos);
-        await sendEmail(promos);
+
+        try {
+          await sendEmail(promos);
+        } catch (emailError) {
+          console.error(
+            '⚠️ Erro ao enviar e-mail (continuando...):',
+            emailError.message,
+          );
+        }
+
         console.log('Promoções atualizadas via API');
       })
       .catch((err) => {
@@ -71,7 +80,16 @@ async function runScheduledUpdate() {
     const { savePromotionsToFile, sendEmail } = require('./bot');
     const promos = await checkPromotions();
     await savePromotionsToFile(promos);
-    await sendEmail(promos);
+
+    try {
+      await sendEmail(promos);
+    } catch (emailError) {
+      console.error(
+        '⚠️ Erro ao enviar e-mail (continuando...):',
+        emailError.message,
+      );
+    }
+
     console.log(
       `✅ Atualização agendada concluída. ${promos.length} promoções encontradas.`,
     );
@@ -118,8 +136,14 @@ process.on('SIGINT', () => {
 
 process.on('uncaughtException', (error) => {
   console.error('❌ Erro não capturado:', error);
+  console.error('⚠️ Continuando execução...');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Promise rejeitada não tratada:', reason);
+  console.error('⚠️ Continuando execução...');
+});
+
+process.on('exit', (code) => {
+  console.log(`Processo encerrando com código: ${code}`);
 });
