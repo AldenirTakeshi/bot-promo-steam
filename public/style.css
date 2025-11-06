@@ -245,6 +245,31 @@ header h1 {
   font-size: 1.1em;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   z-index: 1;
+  line-height: 1.2;
+}
+
+.position-badge-overlay {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: linear-gradient(135deg, #ffd700, #ffed4e);
+  color: #1b2838;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 1.2em;
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.6);
+  z-index: 1;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  line-height: 1.2;
+}
+
+.game-image-container:has(.position-badge-overlay):has(.discount-badge-overlay)
+  .discount-badge-overlay,
+.game-image-container:has(.position-badge-overlay):has(.discount-badge-overlay)
+  .position-badge-overlay {
+  top: 10px;
+  align-items: flex-start;
 }
 
 .game-content {
@@ -359,6 +384,52 @@ header h1 {
   .search-input,
   .genre-select,
   .sort-select {
+    width: 100%;
+  }
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 30px;
+  justify-content: center;
+}
+
+.tab-btn {
+  padding: 12px 30px;
+  background: var(--card-bg);
+  border: 2px solid var(--steam-gray);
+  color: var(--text-primary);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1.1em;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.tab-btn:hover {
+  background: var(--card-hover);
+  border-color: var(--steam-light-blue);
+  transform: translateY(-2px);
+}
+
+.tab-btn.active {
+  background: linear-gradient(
+    135deg,
+    var(--steam-light-blue),
+    var(--steam-green)
+  );
+  border-color: var(--steam-light-blue);
+  color: var(--steam-dark);
+  box-shadow: 0 4px 15px rgba(102, 192, 244, 0.4);
+}
+
+@media (max-width: 768px) {
+  .tabs {
+    flex-direction: column;
+  }
+
+  .tab-btn {
     width: 100%;
   }
 }

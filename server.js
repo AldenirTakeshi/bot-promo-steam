@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const cron = require('node-cron');
-const { checkPromotions } = require('./bot');
+const { checkPromotions, getTopSellingGames } = require('./bot');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -35,17 +35,41 @@ app.get('/api/promotions', (req, res) => {
   }
 });
 
+app.get('/api/topsellers', (req, res) => {
+  try {
+    const dataPath = path.join(__dirname, 'data', 'topsellers.json');
+
+    if (fs.existsSync(dataPath)) {
+      const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+      res.json(data);
+    } else {
+      res.json({
+        lastUpdate: null,
+        total: 0,
+        games: [],
+        message: 'Nenhum dado encontrado. Execute a atualização primeiro.',
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/update', async (req, res) => {
   try {
     res.json({
       message: 'Atualização iniciada. Isso pode levar alguns minutos...',
     });
 
-    const { savePromotionsToFile, sendEmail } = require('./bot');
-    checkPromotions()
-      .then(async (promos) => {
-        await savePromotionsToFile(promos);
+    const {
+      savePromotionsToFile,
+      saveTopSellersToFile,
+      sendEmail,
+    } = require('./bot');
 
+    Promise.all([
+      checkPromotions().then(async (promos) => {
+        await savePromotionsToFile(promos);
         try {
           await sendEmail(promos);
         } catch (emailError) {
@@ -54,12 +78,17 @@ app.post('/api/update', async (req, res) => {
             emailError.message,
           );
         }
-
         console.log('Promoções atualizadas via API');
-      })
-      .catch((err) => {
-        console.error('Erro ao atualizar:', err);
-      });
+        return promos;
+      }),
+      getTopSellingGames().then(async (games) => {
+        await saveTopSellersToFile(games);
+        console.log('Mais vendidos atualizados via API');
+        return games;
+      }),
+    ]).catch((err) => {
+      console.error('Erro ao atualizar:', err);
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -75,11 +104,24 @@ app.get('/health', (req, res) => {
 
 // Função para executar a atualização de promoções
 async function runScheduledUpdate() {
-  console.log('🕘 Executando atualização agendada de promoções...');
+  console.log('🕘 Executando atualização agendada...');
   try {
-    const { savePromotionsToFile, sendEmail } = require('./bot');
-    const promos = await checkPromotions();
-    await savePromotionsToFile(promos);
+    const {
+      savePromotionsToFile,
+      saveTopSellersToFile,
+      sendEmail,
+    } = require('./bot');
+
+    const [promos, topSellers] = await Promise.all([
+      checkPromotions().then(async (promos) => {
+        await savePromotionsToFile(promos);
+        return promos;
+      }),
+      getTopSellingGames().then(async (games) => {
+        await saveTopSellersToFile(games);
+        return games;
+      }),
+    ]);
 
     try {
       await sendEmail(promos);
@@ -91,7 +133,7 @@ async function runScheduledUpdate() {
     }
 
     console.log(
-      `✅ Atualização agendada concluída. ${promos.length} promoções encontradas.`,
+      `✅ Atualização agendada concluída. ${promos.length} promoções e ${topSellers.length} mais vendidos encontrados.`,
     );
   } catch (error) {
     console.error('❌ Erro na atualização agendada:', error);

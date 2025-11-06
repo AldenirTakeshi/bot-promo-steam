@@ -12,6 +12,8 @@ try {
 const COUNTRY_CODE = 'br';
 const CURRENCY_ID = 20;
 const MAX_PROMOTIONS_TO_CHECK = 100;
+const MAX_TOP_SELLERS = 100;
+const TOP_SELLERS_PAGES = 4;
 const CONCURRENT_REQUESTS = 10;
 const DELAY_BETWEEN_BATCHES = 100;
 
@@ -125,11 +127,121 @@ async function getGamesOnSale() {
   }
 }
 
+async function getTopSellersPage(page = 1) {
+  try {
+    const topSellersUrl = `https://store.steampowered.com/search/?cc=${COUNTRY_CODE}&l=brazilian&filter=topsellers&page=${page}`;
+
+    const response = await axios.get(topSellersUrl, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+      timeout: 15000,
+    });
+
+    const appIds = new Set();
+
+    if (response.data && typeof response.data === 'string') {
+      const htmlContent = response.data;
+
+      const dataAppIdPattern = /data-ds-appid="(\d+)"/g;
+      let match;
+      while ((match = dataAppIdPattern.exec(htmlContent)) !== null) {
+        const appId = match[1];
+        const numId = parseInt(appId, 10);
+        if (numId > 10) {
+          appIds.add(appId);
+        }
+      }
+
+      const appLinkPattern = /href="[^"]*\/app\/(\d+)[^"]*"/g;
+      while ((match = appLinkPattern.exec(htmlContent)) !== null) {
+        const appId = match[1];
+        const numId = parseInt(appId, 10);
+        if (numId > 10) {
+          appIds.add(appId);
+        }
+      }
+
+      const rgMatch = htmlContent.match(
+        /rgSearchResults\s*=\s*(\{[\s\S]*?\});/,
+      );
+      if (rgMatch && rgMatch[1]) {
+        try {
+          let jsonStr = rgMatch[1].trim();
+          jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+          const data = JSON.parse(jsonStr);
+
+          if (data && typeof data === 'object') {
+            const keys = Object.keys(data);
+            keys.forEach((appId) => {
+              const numId = parseInt(appId, 10);
+              if (!isNaN(numId) && numId > 10 && appId === String(numId)) {
+                appIds.add(appId);
+              }
+            });
+          }
+        } catch (e) {}
+      }
+    }
+
+    return Array.from(appIds);
+  } catch (error) {
+    console.error(
+      `Erro ao buscar página ${page} de mais vendidos:`,
+      error.message,
+    );
+    return [];
+  }
+}
+
+/**
+ * @returns {Array<string>}
+ */
+async function getTopSellers() {
+  try {
+    console.log('Buscando jogos mais vendidos na Steam...');
+
+    console.log(
+      `Buscando ${TOP_SELLERS_PAGES} páginas de mais vendidos em paralelo...`,
+    );
+
+    const pageNumbers = Array.from(
+      { length: TOP_SELLERS_PAGES },
+      (_, i) => i + 1,
+    );
+    const results = await Promise.all(
+      pageNumbers.map((page) => getTopSellersPage(page)),
+    );
+
+    const appIds = new Set();
+    results.forEach((ids, index) => {
+      ids.forEach((id) => appIds.add(id));
+      console.log(`  ✓ Página ${index + 1}: ${ids.length} App IDs encontrados`);
+    });
+
+    const appIdsArray = Array.from(appIds).slice(0, MAX_TOP_SELLERS);
+    console.log(
+      `✓ Total: ${appIdsArray.length} jogos mais vendidos únicos encontrados`,
+    );
+
+    return appIdsArray;
+  } catch (error) {
+    console.error('Erro ao buscar mais vendidos:', error.message);
+    return [];
+  }
+}
+
 /**
  * @param {string} appId
+ * @param {boolean} requirePromo
+ * @param {number} position
  * @returns {object|null}
  */
-async function getGamePrice(appId) {
+async function getGamePrice(appId, requirePromo = true, position = null) {
   try {
     const url = `http://store.steampowered.com/api/appdetails?appids=${appId}&cc=${COUNTRY_CODE}&l=brazilian&currency=${CURRENCY_ID}`;
 
@@ -138,14 +250,20 @@ async function getGamePrice(appId) {
     const success = response.data[appId].success;
     const data = success ? response.data[appId].data : null;
 
-    if (!data || !data.price_overview) {
+    if (!data) {
       return null;
     }
 
-    const priceData = data.price_overview;
+    if (!data.price_overview) {
+      if (requirePromo) {
+        return null;
+      }
+    } else {
+      const priceData = data.price_overview;
 
-    if (priceData.discount_percent <= 0) {
-      return null;
+      if (requirePromo && priceData.discount_percent <= 0) {
+        return null;
+      }
     }
 
     let imageUrl = null;
@@ -168,17 +286,20 @@ async function getGamePrice(appId) {
         .filter(Boolean);
     }
 
+    const priceData = data.price_overview || {};
+
     return {
       name: data.name,
-      initialPrice: priceData.initial_formatted,
-      finalPrice: priceData.final_formatted,
-      discountPercent: priceData.discount_percent,
-      isPromo: true,
+      initialPrice: priceData.initial_formatted || 'Gratuito',
+      finalPrice: priceData.final_formatted || 'Gratuito',
+      discountPercent: priceData.discount_percent || 0,
+      isPromo: priceData.discount_percent > 0,
       link: `https://store.steampowered.com/app/${appId}/`,
       imageUrl:
         imageUrl ||
         `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`,
       genres: genres,
+      position: position,
     };
   } catch (error) {
     if (error.response && error.response.status === 400) {
@@ -188,21 +309,27 @@ async function getGamePrice(appId) {
   }
 }
 
-async function processBatch(appIds) {
-  const promises = appIds.map((appId) => getGamePrice(appId));
+async function processBatch(appIds, requirePromo = true, startIndex = 0) {
+  const promises = appIds.map((appId, index) =>
+    getGamePrice(appId, requirePromo, startIndex + index + 1),
+  );
   const results = await Promise.allSettled(promises);
 
-  const promotions = [];
-  results.forEach((result, index) => {
-    if (result.status === 'fulfilled' && result.value && result.value.isPromo) {
-      promotions.push(result.value);
-      console.log(
-        `✓ Promoção: ${result.value.name} - ${result.value.discountPercent}% OFF`,
-      );
+  const games = [];
+  results.forEach((result) => {
+    if (result.status === 'fulfilled' && result.value) {
+      if (requirePromo && result.value.isPromo) {
+        games.push(result.value);
+        console.log(
+          `✓ Promoção: ${result.value.name} - ${result.value.discountPercent}% OFF`,
+        );
+      } else if (!requirePromo) {
+        games.push(result.value);
+      }
     }
   });
 
-  return promotions;
+  return games;
 }
 
 /**
@@ -231,7 +358,7 @@ async function checkPromotions() {
       `Processando lote ${batchNumber}/${totalBatches} (${batch.length} jogos)...`,
     );
 
-    const batchPromotions = await processBatch(batch);
+    const batchPromotions = await processBatch(batch, true);
     allPromotions.push(...batchPromotions);
 
     if (i + CONCURRENT_REQUESTS < appIds.length) {
@@ -241,11 +368,56 @@ async function checkPromotions() {
     }
   }
 
+  allPromotions.sort((a, b) => b.discountPercent - a.discountPercent);
+
   console.log(
     `✅ Verificação concluída: ${allPromotions.length} promoções encontradas`,
   );
 
   return allPromotions;
+}
+
+/**
+ * @returns {Array<object>}
+ */
+async function getTopSellingGames() {
+  const appIds = await getTopSellers();
+
+  if (appIds.length === 0) {
+    console.log('Nenhum jogo mais vendido encontrado');
+    return [];
+  }
+
+  console.log(
+    `Verificando detalhes de ${appIds.length} jogos mais vendidos (processamento paralelo)...`,
+  );
+
+  const allGames = [];
+  const totalBatches = Math.ceil(appIds.length / CONCURRENT_REQUESTS);
+
+  for (let i = 0; i < appIds.length; i += CONCURRENT_REQUESTS) {
+    const batch = appIds.slice(i, i + CONCURRENT_REQUESTS);
+    const batchNumber = Math.floor(i / CONCURRENT_REQUESTS) + 1;
+
+    console.log(
+      `Processando lote ${batchNumber}/${totalBatches} (${batch.length} jogos)...`,
+    );
+
+    const batchGames = await processBatch(batch, false, i);
+    allGames.push(...batchGames);
+
+    if (i + CONCURRENT_REQUESTS < appIds.length) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, DELAY_BETWEEN_BATCHES),
+      );
+    }
+  }
+
+  console.log(
+    `✅ Verificação concluída: ${allGames.length} jogos mais vendidos encontrados`,
+  );
+
+  return allGames;
 }
 
 /**
@@ -467,9 +639,32 @@ if (require.main === module) {
   main();
 }
 
+async function saveTopSellersToFile(games) {
+  try {
+    const dataDir = path.join(__dirname, 'data');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir);
+    }
+
+    const filePath = path.join(dataDir, 'topsellers.json');
+    const data = {
+      lastUpdate: new Date().toISOString(),
+      total: games.length,
+      games: games,
+    };
+
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+    console.log(`✓ Dados de mais vendidos salvos em ${filePath}`);
+  } catch (error) {
+    console.error('Erro ao salvar mais vendidos:', error.message);
+  }
+}
+
 module.exports = {
   checkPromotions,
   getGamesOnSale,
+  getTopSellingGames,
   savePromotionsToFile,
+  saveTopSellersToFile,
   sendEmail,
 };

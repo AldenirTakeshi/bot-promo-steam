@@ -1,7 +1,17 @@
 let promotions = [];
+let topSellers = [];
+let currentTab = 'promotions';
 
 document.addEventListener('DOMContentLoaded', () => {
   loadPromotions();
+  loadTopSellers();
+
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      switchTab(tab);
+    });
+  });
 
   document.getElementById('refreshBtn').addEventListener('click', () => {
     updatePromotions();
@@ -14,6 +24,45 @@ document.addEventListener('DOMContentLoaded', () => {
     .addEventListener('change', filterGames);
 });
 
+function switchTab(tab) {
+  currentTab = tab;
+
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    if (btn.dataset.tab === tab) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  if (tab === 'promotions') {
+    displayGames(promotions);
+    updateStats(promotions);
+  } else {
+    displayGames(topSellers);
+    updateStats(topSellers);
+  }
+}
+
+async function loadTopSellers() {
+  try {
+    const response = await fetch('/api/topsellers');
+    const data = await response.json();
+
+    if (data.games && data.games.length > 0) {
+      topSellers = data.games;
+      topSellers.sort((a, b) => {
+        if (a.position && b.position) {
+          return a.position - b.position;
+        }
+        return 0;
+      });
+    }
+  } catch (error) {
+    console.error('Erro ao carregar mais vendidos:', error);
+  }
+}
+
 async function loadPromotions() {
   try {
     showLoading(true);
@@ -22,6 +71,9 @@ async function loadPromotions() {
 
     if (data.promotions && data.promotions.length > 0) {
       promotions = data.promotions;
+
+      promotions.sort((a, b) => b.discountPercent - a.discountPercent);
+
       updateGenreFilter(promotions);
       displayGames(promotions);
       updateStats(promotions);
@@ -47,6 +99,7 @@ async function updatePromotions() {
 
     setTimeout(() => {
       loadPromotions();
+      loadTopSellers();
       btn.disabled = false;
       btn.textContent = '🔄 Atualizar';
     }, 5000);
@@ -78,14 +131,22 @@ function createGameCard(game) {
   const card = document.createElement('div');
   card.className = 'game-card';
 
+  const discountBadge =
+    game.isPromo && game.discountPercent > 0
+      ? `<div class="discount-badge-overlay">-${game.discountPercent}%</div>`
+      : '';
+
+  const positionBadge = game.position
+    ? `<div class="position-badge-overlay">#${game.position}</div>`
+    : '';
+
   const imageHtml = game.imageUrl
     ? `<div class="game-image-container">
               <img src="${game.imageUrl}" alt="${escapeHtml(
         game.name,
       )}" class="game-image" onerror="this.src='https://via.placeholder.com/460x215?text=Imagem+não+disponível'" />
-              <div class="discount-badge-overlay">-${
-                game.discountPercent
-              }%</div>
+              ${discountBadge}
+              ${positionBadge}
             </div>`
     : '';
 
@@ -154,7 +215,9 @@ function filterGames() {
   const selectedGenre = document.getElementById('genreSelect').value;
   const sortBy = document.getElementById('sortSelect').value;
 
-  let filtered = promotions.filter((game) => {
+  const currentList = currentTab === 'promotions' ? promotions : topSellers;
+
+  let filtered = currentList.filter((game) => {
     const matchesName = game.name.toLowerCase().includes(searchTerm);
 
     let matchesGenre = true;
@@ -171,6 +234,16 @@ function filterGames() {
       break;
     case 'discount-asc':
       filtered.sort((a, b) => a.discountPercent - b.discountPercent);
+      break;
+    case 'position-asc':
+      filtered.sort((a, b) => {
+        if (a.position && b.position) {
+          return a.position - b.position;
+        }
+        if (a.position) return -1;
+        if (b.position) return 1;
+        return 0;
+      });
       break;
     case 'name-asc':
       filtered.sort((a, b) => a.name.localeCompare(b.name));
