@@ -12,95 +12,103 @@ try {
 const COUNTRY_CODE = 'br';
 const CURRENCY_ID = 20;
 const MAX_PROMOTIONS_TO_CHECK = 100;
+const CONCURRENT_REQUESTS = 10;
+const DELAY_BETWEEN_BATCHES = 100;
 
 /**
  * @returns {Array<string>}
  */
+
+async function searchTerm(term) {
+  try {
+    const searchUrl = `https://store.steampowered.com/search/?cc=${COUNTRY_CODE}&l=brazilian&specials=1&term=${encodeURIComponent(
+      term,
+    )}&page=1`;
+
+    const response = await axios.get(searchUrl, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+      timeout: 15000,
+    });
+
+    const appIds = new Set();
+
+    if (response.data && typeof response.data === 'string') {
+      const htmlContent = response.data;
+
+      const dataAppIdPattern = /data-ds-appid="(\d+)"/g;
+      let match;
+      while ((match = dataAppIdPattern.exec(htmlContent)) !== null) {
+        const appId = match[1];
+        const numId = parseInt(appId, 10);
+        if (numId > 10) {
+          appIds.add(appId);
+        }
+      }
+
+      const appLinkPattern = /href="[^"]*\/app\/(\d+)[^"]*"/g;
+      while ((match = appLinkPattern.exec(htmlContent)) !== null) {
+        const appId = match[1];
+        const numId = parseInt(appId, 10);
+        if (numId > 10) {
+          appIds.add(appId);
+        }
+      }
+
+      const rgMatch = htmlContent.match(
+        /rgSearchResults\s*=\s*(\{[\s\S]*?\});/,
+      );
+      if (rgMatch && rgMatch[1]) {
+        try {
+          let jsonStr = rgMatch[1].trim();
+          jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+          const data = JSON.parse(jsonStr);
+
+          if (data && typeof data === 'object') {
+            const keys = Object.keys(data);
+            keys.forEach((appId) => {
+              const numId = parseInt(appId, 10);
+              if (!isNaN(numId) && numId > 10 && appId === String(numId)) {
+                appIds.add(appId);
+              }
+            });
+          }
+        } catch (e) {}
+      }
+    }
+
+    return Array.from(appIds);
+  } catch (error) {
+    console.error(`Erro ao buscar termo "${term}":`, error.message);
+    return [];
+  }
+}
+
 async function getGamesOnSale() {
   try {
     console.log('Buscando jogos em promoção na Steam...');
 
-    const appIds = new Set();
-
     const searchTerms = ['', 'action', 'rpg', 'strategy', 'adventure', 'indie'];
 
-    for (const term of searchTerms) {
-      try {
-        const searchUrl = `https://store.steampowered.com/search/?cc=${COUNTRY_CODE}&l=brazilian&specials=1&term=${encodeURIComponent(
-          term,
-        )}&page=1`;
+    console.log(`Buscando ${searchTerms.length} categorias em paralelo...`);
+    const results = await Promise.all(
+      searchTerms.map((term) => searchTerm(term)),
+    );
 
-        console.log(`Buscando: ${term || 'geral'}...`);
-
-        const response = await axios.get(searchUrl, {
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            Accept:
-              'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-          },
-          timeout: 15000,
-        });
-
-        if (response.data && typeof response.data === 'string') {
-          const htmlContent = response.data;
-
-          const dataAppIdPattern = /data-ds-appid="(\d+)"/g;
-          let match;
-          while ((match = dataAppIdPattern.exec(htmlContent)) !== null) {
-            const appId = match[1];
-            const numId = parseInt(appId, 10);
-            if (numId > 10) {
-              appIds.add(appId);
-            }
-          }
-
-          const appLinkPattern = /href="[^"]*\/app\/(\d+)[^"]*"/g;
-          while ((match = appLinkPattern.exec(htmlContent)) !== null) {
-            const appId = match[1];
-            const numId = parseInt(appId, 10);
-            if (numId > 10) {
-              appIds.add(appId);
-            }
-          }
-
-          const rgMatch = htmlContent.match(
-            /rgSearchResults\s*=\s*(\{[\s\S]*?\});/,
-          );
-          if (rgMatch && rgMatch[1]) {
-            try {
-              let jsonStr = rgMatch[1].trim();
-              jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
-              const data = JSON.parse(jsonStr);
-
-              if (data && typeof data === 'object') {
-                const keys = Object.keys(data);
-                keys.forEach((appId) => {
-                  const numId = parseInt(appId, 10);
-                  if (!isNaN(numId) && numId > 10 && appId === String(numId)) {
-                    appIds.add(appId);
-                  }
-                });
-              }
-            } catch (e) {}
-          }
-
-          console.log(
-            `  ✓ ${term || 'geral'}: ${appIds.size} App IDs encontrados`,
-          );
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        if (appIds.size >= MAX_PROMOTIONS_TO_CHECK) {
-          break;
-        }
-      } catch (error) {
-        console.error(`Erro ao buscar termo "${term}":`, error.message);
-        continue;
-      }
-    }
+    const appIds = new Set();
+    results.forEach((ids, index) => {
+      ids.forEach((id) => appIds.add(id));
+      console.log(
+        `  ✓ ${searchTerms[index] || 'geral'}: ${
+          ids.length
+        } App IDs encontrados`,
+      );
+    });
 
     const appIdsArray = Array.from(appIds).slice(0, MAX_PROMOTIONS_TO_CHECK);
     console.log(`✓ Total: ${appIdsArray.length} App IDs únicos encontrados`);
@@ -180,8 +188,24 @@ async function getGamePrice(appId) {
   }
 }
 
+async function processBatch(appIds) {
+  const promises = appIds.map((appId) => getGamePrice(appId));
+  const results = await Promise.allSettled(promises);
+
+  const promotions = [];
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled' && result.value && result.value.isPromo) {
+      promotions.push(result.value);
+      console.log(
+        `✓ Promoção: ${result.value.name} - ${result.value.discountPercent}% OFF`,
+      );
+    }
+  });
+
+  return promotions;
+}
+
 /**
- * Verifica promoções nos jogos encontrados
  * @returns {Array<object>}
  */
 async function checkPromotions() {
@@ -192,32 +216,36 @@ async function checkPromotions() {
     return [];
   }
 
-  const promotions = [];
-  console.log(`Verificando detalhes de ${appIds.length} jogos em promoção...`);
+  console.log(
+    `Verificando detalhes de ${appIds.length} jogos em promoção (processamento paralelo)...`,
+  );
 
-  let processed = 0;
-  for (const appId of appIds) {
-    processed++;
+  const allPromotions = [];
+  const totalBatches = Math.ceil(appIds.length / CONCURRENT_REQUESTS);
 
-    if (processed % 10 === 0) {
-      console.log(
-        `Processando... ${processed}/${appIds.length} jogos verificados`,
+  for (let i = 0; i < appIds.length; i += CONCURRENT_REQUESTS) {
+    const batch = appIds.slice(i, i + CONCURRENT_REQUESTS);
+    const batchNumber = Math.floor(i / CONCURRENT_REQUESTS) + 1;
+
+    console.log(
+      `Processando lote ${batchNumber}/${totalBatches} (${batch.length} jogos)...`,
+    );
+
+    const batchPromotions = await processBatch(batch);
+    allPromotions.push(...batchPromotions);
+
+    if (i + CONCURRENT_REQUESTS < appIds.length) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, DELAY_BETWEEN_BATCHES),
       );
     }
-
-    const gameData = await getGamePrice(appId);
-
-    if (gameData && gameData.isPromo) {
-      promotions.push(gameData);
-      console.log(
-        `✓ Promoção encontrada: ${gameData.name} - ${gameData.discountPercent}% OFF`,
-      );
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
-  return promotions;
+  console.log(
+    `✅ Verificação concluída: ${allPromotions.length} promoções encontradas`,
+  );
+
+  return allPromotions;
 }
 
 /**
