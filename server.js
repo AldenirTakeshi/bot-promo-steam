@@ -7,6 +7,12 @@ const { checkPromotions } = require('./bot');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+  console.log('Pasta data criada');
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/promotions', (req, res) => {
@@ -54,6 +60,10 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Função para executar a atualização de promoções
 async function runScheduledUpdate() {
   console.log('🕘 Executando atualização agendada de promoções...');
@@ -73,20 +83,43 @@ async function runScheduledUpdate() {
 const CRON_SCHEDULE = process.env.CRON_SCHEDULE || '0 10 * * *'; // 10h00 horário de Brasília
 const ENABLE_CRON = process.env.ENABLE_CRON !== 'false'; // Ativo por padrão
 
-if (ENABLE_CRON) {
-  cron.schedule(CRON_SCHEDULE, runScheduledUpdate, {
-    scheduled: true,
-    timezone: 'America/Sao_Paulo', // Timezone de Brasília
-  });
-  console.log(
-    `⏰ Cron job configurado: execução diária às 10h (horário de Brasília)`,
-  );
-  console.log(`📅 Próxima execução agendada para 9h00 do dia seguinte`);
-} else {
-  console.log('⚠️ Cron job desabilitado (ENABLE_CRON=false)');
-}
-
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
   console.log(`📊 Acesse para ver as promoções!`);
+
+  if (ENABLE_CRON) {
+    try {
+      cron.schedule(CRON_SCHEDULE, runScheduledUpdate, {
+        scheduled: true,
+        timezone: 'America/Sao_Paulo', // Timezone de Brasília
+      });
+      console.log(
+        `⏰ Cron job configurado: execução diária às 10h (horário de Brasília)`,
+      );
+      console.log(`📅 Próxima execução agendada para 10h00 do dia seguinte`);
+    } catch (error) {
+      console.error('❌ Erro ao configurar cron job:', error);
+      console.log('⚠️ Continuando sem cron job automático...');
+    }
+  } else {
+    console.log('⚠️ Cron job desabilitado (ENABLE_CRON=false)');
+  }
+});
+
+process.on('SIGTERM', () => {
+  console.log('📴 SIGTERM recebido, encerrando graciosamente...');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('📴 SIGINT recebido, encerrando graciosamente...');
+  process.exit(0);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Erro não capturado:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Promise rejeitada não tratada:', reason);
 });
